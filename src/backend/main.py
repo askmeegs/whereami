@@ -77,11 +77,12 @@ def process_guess(g: Guess):
     r = ""
     if "final guess" in txt.lower():
         d, r = process_final_guess(g)
-        r = "### 🏁 Game complete!\nThe correct answer was: {}, {}.\n\nYour final guess was off by: {} miles.\n\n{}".format(
-            answers[g.session_id].name, answers[g.session_id].address, d, r
+        r = "### 🏁 Game complete!\nThe correct answer was: {}, {}.\n\nYour final guess ({}) was off by: {} miles.\n\n{}".format(
+            answers[g.session_id].name, answers[g.session_id].address, g.guess, d, r
         )
     else:
         r = process_intermediate_guess(g)
+        r = "'{}?' ➡️ {}".format(g.guess, r)
     return {"response": "{}".format(r)}
 
 
