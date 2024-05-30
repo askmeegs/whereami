@@ -21,7 +21,7 @@ fastapi dev main.py
 
 
 ### built with: 
-- [Python - FastAPI](https://fastapi.tiangolo.com/tutoria)
+- [Python - FastAPI](https://fastapi.tiangolo.com/tutorial)
 - [Python - Streamlit](https://docs.streamlit.io/)
 - [Gemini Developer API (Gemini Flash, Python SDK)](https://ai.google.dev/gemini-api/docs/get-started/tutorial?lang=python)
 - [Google Maps API](https://developers.google.com/maps/documentation) 
