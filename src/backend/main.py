@@ -24,7 +24,6 @@ class Place(BaseModel):
 
 
 # store chat history in-memory. maps session_id -> chat history {"guess" -> "clue"}.
-#
 chat_history = {}
 
 # map session_id --> Place
@@ -47,19 +46,82 @@ def health():
     return {"status": "ok"}
 
 
+# ------------- ON PAGE LOAD --------------------------
+# Pick the streetview image to render, ie. "pick the answer."
+@app.post("/streetview")
+def streetview(g: Guess):
+    # 1) gemini picks a random location in the world.
+    place_nat = choose_random_location()
+
+    print("\n\n🌐 New session: {}, Gemini chose: {}".format(g.session_id, place_nat))
+
+    # 2) call Google Maps API to return a list of exact places near that location.
+    # https://developers.google.com/maps/documentation/places/web-service/text-search
+    p = nat_language_to_place(place_nat)
+    print("📍 The answer is: {}".format(p))
+    answers[g.session_id] = p
+
+    # 3) render the streetview image.
+    return {
+        "image_url": """https://maps.googleapis.com/maps/api/streetview?size=1200x1200&location={},{}
+&fov=80&heading=70&pitch=0&key={}""".format(
+            p.lat, p.long, google_maps_api_key
+        ),
+    }
+
+
+# ------------- GAMEPLAY --------------------------
+@app.post("/guess")
+def process_guess(g: Guess):
+    txt = g.guess
+    r = ""
+    if "final guess" in txt.lower():
+        d, r = process_final_guess(g)
+        r = "### 🏁 Game complete!\nThe correct answer was: {}, {}.\n\nYour final guess was off by: {} miles.\n\n{}".format(
+            answers[g.session_id].name, answers[g.session_id].address, d, r
+        )
+    else:
+        r = process_intermediate_guess(g)
+    return {"response": "{}".format(r)}
+
+
+# ------------- GAMEPLAY HELPER FUNCTIONS --------------------------
+
+
+# on startup, choose a random place in the world...
 def choose_random_location():
     model = genai.GenerativeModel(
         model_name="gemini-1.5-flash-001",
         system_instruction=[
             """"
-    Generate the name of a random location in the world.
-    It could be of the format: "City, Country"  OR "Landmark, City, Country." 
-    Generate a location that isn't very common or easy to guess - for instance, 
-    do NOT say "The Wave, Arizona" "The Royal Botanic Gardens in Sydney" or "Great Wall of China."  
-    Be random in your response - pick any content, any country. Don't say the same thing more than once. Dig deep.
-    Bonus points if there's some cool trivia or landmark about that place - 
-    for instance, if it was an Olympics hosting city, or has a famous statue.
-    Return JUST the name of the location - no other info!
+            You are facilitating a geography guessing game. Your job is to pick a random location in the world. 
+            Here are the categories of location you could choose from:
+            - A famous landmark (eg. Great Pyramids of Giza)
+            - A city (eg. Lagos, Nigeria)
+            - A national park (eg. Yellowstone National Park, USA)
+            - A statue (eg. Statue of Liberty, New York, USA)
+            - A bridge (eg. Danyang–Kunshan Grand Bridge, China)
+            - A building (eg. Burj Khalifa, Dubai) 
+            - A mountain (eg. Mount Everest, Nepal)
+            - An island (eg. Easter Island, Chile)
+            - A desert (eg. Sahara Desert, Africa)
+            - A lake (eg. Lake Baikal, Russia)
+            - A museum (eg. Louvre Museum, Paris, France)
+            - A beach (eg. Bondi Beach, Australia)
+            - A forest (eg. Amazon Rainforest, Brazil)
+            - A theater (eg. Sydney Opera House, Australia)
+            - A zoo (eg. San Diego Zoo, USA)
+            - A castle (eg. Neuschwanstein Castle, Germany)
+            - A market (eg. Tsukiji Fish Market, Tokyo, Japan)
+            - A stadium (eg. Wembley Stadium, London, England)
+            - A church (eg. Sagrada Familia, Barcelona, Spain)
+            - A university (eg. Harvard University, Cambridge, USA)
+            - A river (eg. Amazon River, South America)
+            - A restaurant (eg. Noma, Copenhagen, Denmark)
+            - A hotel (eg. Marina Bay Sands, Singapore)
+            - A lighthouse (eg. Cape Hatteras Lighthouse, USA)
+            
+            Pick at random from this list of categories. Then, return a random place in the world matching that category. Do not use the provided examples. Return only the place name. 
     """
         ],
     )
@@ -73,6 +135,7 @@ def choose_random_location():
     return r.text
 
 
+# converts a natural language place name to a Place object
 def nat_language_to_place(place_nat) -> Place:
     url = "https://places.googleapis.com/v1/places:searchText"
     headers = {
@@ -116,56 +179,6 @@ def nat_language_to_place(place_nat) -> Place:
     long = p["location"]["longitude"]
 
     return Place(name=name, address=address, lat=lat, long=long)
-
-
-# ------------- ON PAGE LOAD --------------------------
-# Pick the streetview image to render, ie. "pick the answer."
-# This is a multi step process:
-# 1) Ask gemini to pick a random location in the world. (town or landmark)
-# 2) Use Maps Text Search to go from natural language place --> exact location
-# 3) Call the Google Maps API to return a list of ~10 exact places within ~100 meters of that location.
-# 4) Pick an exact place at random. (This makes the game a bit harder, like instead of rendering the eiffel tower perfectly, we might pick a market down the street from the eiffel tower.)
-# 5) On the frontend, render an interactive Street View image of that random location. The user can't move the location, but they can swivel around to see their surroundings.
-@app.post("/streetview")
-def streetview(g: Guess):
-    # 1) gemini picks a random location in the world.
-    place_nat = choose_random_location()
-
-    print("\n\n🌐 New session: {}, Gemini chose: {}".format(g.session_id, place_nat))
-
-    # 2) call Google Maps API to return a list of exact places near that location.
-    # https://developers.google.com/maps/documentation/places/web-service/text-search
-    p = nat_language_to_place(place_nat)
-    print("📍 The answer is: {}".format(p))
-    answers[g.session_id] = p
-
-    # [TODO] make the game harder by picking a random place near the exact location. vs. returning the exact location.
-
-    # 3) render the streetview image.
-    return {
-        "image_url": """https://maps.googleapis.com/maps/api/streetview?size=1200x1200&location={},{}
-&fov=80&heading=70&pitch=0&key={}""".format(
-            p.lat, p.long, google_maps_api_key
-        ),
-    }
-
-
-# ------------- GAMEPLAY --------------------------
-@app.post("/guess")
-def process_guess(g: Guess):
-    txt = g.guess
-    r = ""
-    if "final guess" in txt.lower():
-        d, r = process_final_guess(g)
-        r = "### 🏁 Game complete!\nThe correct answer was: {}, {}.\n\nYour final guess was off by: {} miles.\n\n{}".format(
-            answers[g.session_id].name, answers[g.session_id].address, d, r
-        )
-    else:
-        r = process_intermediate_guess(g)
-    return {"response": "{}".format(r)}
-
-
-# ------------- GAMEPLAY HELPER FUNCTIONS --------------------------
 
 
 # as-the-crow-flies distance between two points
